@@ -61,6 +61,22 @@ const delay = async (ms: number): Promise<void> =>
     window.setTimeout(resolve, ms);
   });
 
+const findFileByPathLoose = (app: App, targetPath: string): TFile | null => {
+  const direct = app.vault.getFileByPath(targetPath);
+  if (direct) {
+    return direct;
+  }
+
+  const normalizedLower = normalizePath(targetPath).toLowerCase();
+  for (const file of app.vault.getFiles()) {
+    if (normalizePath(file.path).toLowerCase() === normalizedLower) {
+      return file;
+    }
+  }
+
+  return null;
+};
+
 export const saveAudioToVault = async (
   app: App,
   settings: VoiceFlashSettings,
@@ -95,13 +111,33 @@ export const saveAudioToVault = async (
 
 const buildEntry = (settings: VoiceFlashSettings, audioPath: string, transcription: string): string => {
   const lines: string[] = [];
-
-  if (settings.insertAudioLink) {
-    lines.push(`- [[${audioPath}]]`);
-  }
+  const editedLine = `<!-- edited: ${formatEditedTimestamp(new Date())} -->`;
 
   lines.push(transcription.trim());
-  lines.push(`<!-- edited: ${formatEditedTimestamp(new Date())} -->`);
+
+  if (settings.insertAudioLink) {
+    lines.push("");
+
+    if (settings.audioLinkStyle === "hidden-comment") {
+      lines.push(`<!-- audio: [[${audioPath}]] -->`);
+      lines.push(editedLine);
+    } else if (settings.audioLinkStyle === "edit-only") {
+      lines.push(`> [!recording]-`);
+      lines.push(`> ![[${audioPath}]]`);
+      lines.push(`> ${editedLine}`);
+    } else if (settings.audioLinkStyle === "embed") {
+      lines.push(`![[${audioPath}]]`);
+      lines.push("");
+      lines.push(editedLine);
+    } else {
+      lines.push(`[[${audioPath}]]`);
+      lines.push("");
+      lines.push(editedLine);
+    }
+  } else {
+    lines.push("");
+    lines.push(editedLine);
+  }
 
   return `${lines.join("\n")}\n`;
 };
@@ -122,52 +158,37 @@ export const appendTranscriptionEntry = async (
   const entry = buildEntry(settings, audioPath, cleaned);
   const abstract = app.vault.getAbstractFileByPath(targetPath);
   if (abstract && !(abstract instanceof TFile)) {
-    throw new Error(`默认写入文件 ${targetPath} 不是 Markdown 文件。`);
+    throw new Error(`默认写入目标 ${targetPath} 不是文件，请修改设置。`);
   }
-  const appendByAdapter = async (): Promise<void> => {
-    const stat = await app.vault.adapter.stat(targetPath);
-    const prefix = stat && stat.size > 0 ? "\n" : "";
-    await app.vault.adapter.append(targetPath, `${prefix}${entry}`);
-  };
 
-  // Strict logic: if file exists, append directly; if not, create.
-  const existsOnDisk = await app.vault.adapter.exists(targetPath);
-  if (existsOnDisk) {
-    const file = app.vault.getFileByPath(targetPath);
-    if (file) {
-      const prefix = file.stat.size > 0 ? "\n" : "";
-      await app.vault.append(file, `${prefix}${entry}`);
+  let file = findFileByPathLoose(app, targetPath);
+
+  if (!file) {
+    try {
+      file = await app.vault.create(targetPath, entry);
       return;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
     }
 
-    // Cache may be stale briefly; append at adapter level.
-    await appendByAdapter();
-    return;
-  }
-
-  try {
-    await app.vault.create(targetPath, entry);
-    return;
-  } catch (error) {
-    if (!isAlreadyExistsError(error)) {
-      throw error;
+    // File may have been created concurrently; wait briefly for vault index.
+    for (let i = 0; i < 8; i += 1) {
+      file = findFileByPathLoose(app, targetPath);
+      if (file) {
+        break;
+      }
+      await delay(80);
     }
   }
 
-  // Race condition: another operation created the file; append now.
-  for (let i = 0; i < 5; i += 1) {
-    const file = app.vault.getFileByPath(targetPath);
-    if (file) {
-      const prefix = file.stat.size > 0 ? "\n" : "";
-      await app.vault.append(file, `${prefix}${entry}`);
-      return;
-    }
-    await delay(80);
+  if (!file) {
+    throw new Error(`检测到 ${targetPath} 写入状态不稳定，已中止以防覆盖，请重试。`);
   }
 
-  const existsAfterCreateRace = await app.vault.adapter.exists(targetPath);
-  if (!existsAfterCreateRace) {
-    throw new Error(`默认写入文件 ${targetPath} 创建失败。`);
-  }
-  await appendByAdapter();
+  await app.vault.process(file, (oldContent) => {
+    const prefix = oldContent.length > 0 ? "\n" : "";
+    return `${oldContent}${prefix}${entry}`;
+  });
 };

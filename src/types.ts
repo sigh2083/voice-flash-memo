@@ -6,6 +6,7 @@ export interface VoiceFlashSettings {
   model: string;
   prompt: string;
   insertAudioLink: boolean;
+  audioLinkStyle: "wikilink" | "embed" | "edit-only" | "hidden-comment";
   syncFallbackMs: number;
 }
 
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: VoiceFlashSettings = {
   model: "whisper-1",
   prompt: "请尽量忠实转写，整理口语、断句和标点。",
   insertAudioLink: true,
+  audioLinkStyle: "edit-only",
   syncFallbackMs: 6000,
 };
 

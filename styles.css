@@ -57,3 +57,9 @@
 .voice-flash-prompt-setting {
   width: 100%;
 }
+
+/* Keep recording callout visible in edit mode but hidden in reading mode. */
+.markdown-reading-view .callout[data-callout="recording"],
+.markdown-preview-view .callout[data-callout="recording"] {
+  display: none;
+}

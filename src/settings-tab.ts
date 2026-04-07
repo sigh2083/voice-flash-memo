@@ -104,5 +104,28 @@ export class VoiceFlashSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("录音链接样式")
+      .setDesc("普通双链、嵌入播放器，或仅在编辑模式可见。")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("edit-only", "仅编辑模式可见（recording callout）")
+          .addOption("embed", "嵌入播放器 ![[...]]")
+          .addOption("wikilink", "普通双链 [[...]]")
+          .addOption("hidden-comment", "仅编辑模式可见（注释，非真实双链）")
+          .setValue(this.plugin.settings.audioLinkStyle)
+          .onChange(async (value: string) => {
+            if (
+              value === "embed" ||
+              value === "wikilink" ||
+              value === "edit-only" ||
+              value === "hidden-comment"
+            ) {
+              this.plugin.settings.audioLinkStyle = value;
+            }
+            await this.plugin.saveSettings();
+          }),
+      );
   }
 }

@@ -14,11 +14,11 @@ export default class VoiceFlashMemoPlugin extends Plugin {
 
     this.addCommand({
       id: "start-voice-flash-recording",
-      name: "开始语音闪念录音",
+      name: "voiceflash",
       callback: () => this.openRecordingModal(),
     });
 
-    this.addRibbonIcon("mic", "语音闪念录音", () => this.openRecordingModal());
+    this.addRibbonIcon("mic", "voiceflash", () => this.openRecordingModal());
   }
 
   onunload(): void {

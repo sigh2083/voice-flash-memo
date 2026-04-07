@@ -110,6 +110,19 @@ var isAlreadyExistsError = (error) => {
 var delay = async (ms) => new Promise((resolve) => {
   window.setTimeout(resolve, ms);
 });
+var findFileByPathLoose = (app, targetPath) => {
+  const direct = app.vault.getFileByPath(targetPath);
+  if (direct) {
+    return direct;
+  }
+  const normalizedLower = (0, import_obsidian.normalizePath)(targetPath).toLowerCase();
+  for (const file of app.vault.getFiles()) {
+    if ((0, import_obsidian.normalizePath)(file.path).toLowerCase() === normalizedLower) {
+      return file;
+    }
+  }
+  return null;
+};
 var saveAudioToVault = async (app, settings, blob, extension) => {
   const targetFolder = (0, import_obsidian.normalizePath)(settings.attachmentDir.trim() || "attachments");
   await ensureFolderExists(app, targetFolder);
@@ -134,11 +147,30 @@ var saveAudioToVault = async (app, settings, blob, extension) => {
 };
 var buildEntry = (settings, audioPath, transcription) => {
   const lines = [];
-  if (settings.insertAudioLink) {
-    lines.push(`- [[${audioPath}]]`);
-  }
+  const editedLine = `<!-- edited: ${formatEditedTimestamp(/* @__PURE__ */ new Date())} -->`;
   lines.push(transcription.trim());
-  lines.push(`<!-- edited: ${formatEditedTimestamp(/* @__PURE__ */ new Date())} -->`);
+  if (settings.insertAudioLink) {
+    lines.push("");
+    if (settings.audioLinkStyle === "hidden-comment") {
+      lines.push(`<!-- audio: [[${audioPath}]] -->`);
+      lines.push(editedLine);
+    } else if (settings.audioLinkStyle === "edit-only") {
+      lines.push(`> [!recording]-`);
+      lines.push(`> ![[${audioPath}]]`);
+      lines.push(`> ${editedLine}`);
+    } else if (settings.audioLinkStyle === "embed") {
+      lines.push(`![[${audioPath}]]`);
+      lines.push("");
+      lines.push(editedLine);
+    } else {
+      lines.push(`[[${audioPath}]]`);
+      lines.push("");
+      lines.push(editedLine);
+    }
+  } else {
+    lines.push("");
+    lines.push(editedLine);
+  }
   return `${lines.join("\n")}
 `;
 };
@@ -152,46 +184,33 @@ var appendTranscriptionEntry = async (app, settings, audioPath, transcription) =
   const entry = buildEntry(settings, audioPath, cleaned);
   const abstract = app.vault.getAbstractFileByPath(targetPath);
   if (abstract && !(abstract instanceof import_obsidian.TFile)) {
-    throw new Error(`\u9ED8\u8BA4\u5199\u5165\u6587\u4EF6 ${targetPath} \u4E0D\u662F Markdown \u6587\u4EF6\u3002`);
+    throw new Error(`\u9ED8\u8BA4\u5199\u5165\u76EE\u6807 ${targetPath} \u4E0D\u662F\u6587\u4EF6\uFF0C\u8BF7\u4FEE\u6539\u8BBE\u7F6E\u3002`);
   }
-  const appendByAdapter = async () => {
-    const stat = await app.vault.adapter.stat(targetPath);
-    const prefix = stat && stat.size > 0 ? "\n" : "";
-    await app.vault.adapter.append(targetPath, `${prefix}${entry}`);
-  };
-  const existsOnDisk = await app.vault.adapter.exists(targetPath);
-  if (existsOnDisk) {
-    const file = app.vault.getFileByPath(targetPath);
-    if (file) {
-      const prefix = file.stat.size > 0 ? "\n" : "";
-      await app.vault.append(file, `${prefix}${entry}`);
+  let file = findFileByPathLoose(app, targetPath);
+  if (!file) {
+    try {
+      file = await app.vault.create(targetPath, entry);
       return;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
     }
-    await appendByAdapter();
-    return;
-  }
-  try {
-    await app.vault.create(targetPath, entry);
-    return;
-  } catch (error) {
-    if (!isAlreadyExistsError(error)) {
-      throw error;
+    for (let i = 0; i < 8; i += 1) {
+      file = findFileByPathLoose(app, targetPath);
+      if (file) {
+        break;
+      }
+      await delay(80);
     }
   }
-  for (let i = 0; i < 5; i += 1) {
-    const file = app.vault.getFileByPath(targetPath);
-    if (file) {
-      const prefix = file.stat.size > 0 ? "\n" : "";
-      await app.vault.append(file, `${prefix}${entry}`);
-      return;
-    }
-    await delay(80);
+  if (!file) {
+    throw new Error(`\u68C0\u6D4B\u5230 ${targetPath} \u5199\u5165\u72B6\u6001\u4E0D\u7A33\u5B9A\uFF0C\u5DF2\u4E2D\u6B62\u4EE5\u9632\u8986\u76D6\uFF0C\u8BF7\u91CD\u8BD5\u3002`);
   }
-  const existsAfterCreateRace = await app.vault.adapter.exists(targetPath);
-  if (!existsAfterCreateRace) {
-    throw new Error(`\u9ED8\u8BA4\u5199\u5165\u6587\u4EF6 ${targetPath} \u521B\u5EFA\u5931\u8D25\u3002`);
-  }
-  await appendByAdapter();
+  await app.vault.process(file, (oldContent) => {
+    const prefix = oldContent.length > 0 ? "\n" : "";
+    return `${oldContent}${prefix}${entry}`;
+  });
 };
 
 // src/recording-service.ts
@@ -660,6 +679,14 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian4.Setting(containerEl).setName("\u5F55\u97F3\u94FE\u63A5\u6837\u5F0F").setDesc("\u666E\u901A\u53CC\u94FE\u3001\u5D4C\u5165\u64AD\u653E\u5668\uFF0C\u6216\u4EC5\u5728\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\u3002").addDropdown(
+      (dropdown) => dropdown.addOption("edit-only", "\u4EC5\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\uFF08recording callout\uFF09").addOption("embed", "\u5D4C\u5165\u64AD\u653E\u5668 ![[...]]").addOption("wikilink", "\u666E\u901A\u53CC\u94FE [[...]]").addOption("hidden-comment", "\u4EC5\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\uFF08\u6CE8\u91CA\uFF0C\u975E\u771F\u5B9E\u53CC\u94FE\uFF09").setValue(this.plugin.settings.audioLinkStyle).onChange(async (value) => {
+        if (value === "embed" || value === "wikilink" || value === "edit-only" || value === "hidden-comment") {
+          this.plugin.settings.audioLinkStyle = value;
+        }
+        await this.plugin.saveSettings();
+      })
+    );
   }
 };
 
@@ -672,6 +699,7 @@ var DEFAULT_SETTINGS = {
   model: "whisper-1",
   prompt: "\u8BF7\u5C3D\u91CF\u5FE0\u5B9E\u8F6C\u5199\uFF0C\u6574\u7406\u53E3\u8BED\u3001\u65AD\u53E5\u548C\u6807\u70B9\u3002",
   insertAudioLink: true,
+  audioLinkStyle: "edit-only",
   syncFallbackMs: 6e3
 };
 
@@ -686,10 +714,10 @@ var VoiceFlashMemoPlugin = class extends import_obsidian5.Plugin {
     this.addSettingTab(new VoiceFlashSettingTab(this.app, this));
     this.addCommand({
       id: "start-voice-flash-recording",
-      name: "\u5F00\u59CB\u8BED\u97F3\u95EA\u5FF5\u5F55\u97F3",
+      name: "voiceflash",
       callback: () => this.openRecordingModal()
     });
-    this.addRibbonIcon("mic", "\u8BED\u97F3\u95EA\u5FF5\u5F55\u97F3", () => this.openRecordingModal());
+    this.addRibbonIcon("mic", "voiceflash", () => this.openRecordingModal());
   }
   onunload() {
   }
