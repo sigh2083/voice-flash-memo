@@ -348,6 +348,12 @@ var import_obsidian2 = require("obsidian");
 var TranscriptionService = class {
   async transcribe(settings, input) {
     this.validateSettings(settings);
+    if (settings.apiProvider === "gemini") {
+      return this.transcribeWithGemini(settings, input);
+    }
+    return this.transcribeWithOpenAiCompatible(settings, input);
+  }
+  async transcribeWithOpenAiCompatible(settings, input) {
     const endpoint = this.resolveEndpoint(settings.apiBaseUrl);
     const boundary = `----voice-flash-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
     const body = this.buildMultipartBody(boundary, settings, input);
@@ -370,6 +376,42 @@ var TranscriptionService = class {
     }
     return text;
   }
+  async transcribeWithGemini(settings, input) {
+    const endpoint = this.resolveGeminiEndpoint(settings);
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: settings.prompt.trim() || "\u8BF7\u5C3D\u91CF\u5FE0\u5B9E\u8F6C\u5199\uFF0C\u6574\u7406\u53E3\u8BED\u3001\u65AD\u53E5\u548C\u6807\u70B9\u3002" },
+            {
+              inline_data: {
+                mime_type: input.mimeType || "audio/mp4",
+                data: this.arrayBufferToBase64(input.audioBuffer)
+              }
+            }
+          ]
+        }
+      ]
+    };
+    const response = await (0, import_obsidian2.requestUrl)({
+      url: endpoint,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      throw: false
+    });
+    if (response.status >= 400) {
+      throw new Error(this.extractError(response));
+    }
+    const json = this.safeGetJson(response);
+    const text = this.extractGeminiText(json ?? this.tryParseJson(response.text ?? ""));
+    if (!text) {
+      throw new Error("Gemini \u8FD4\u56DE\u4E3A\u7A7A\u3002\u8BF7\u68C0\u67E5\u6A21\u578B\u3001\u6743\u9650\u6216\u97F3\u9891\u683C\u5F0F\u3002");
+    }
+    return text;
+  }
   validateSettings(settings) {
     if (!settings.apiBaseUrl.trim()) {
       throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 API Base URL\u3002");
@@ -380,6 +422,12 @@ var TranscriptionService = class {
     if (!settings.model.trim()) {
       throw new Error("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 Model\u3002");
     }
+  }
+  resolveGeminiEndpoint(settings) {
+    const base = settings.apiBaseUrl.trim().replace(/\/+$/g, "");
+    const model = settings.model.trim();
+    const key = encodeURIComponent(settings.apiKey.trim());
+    return `${base}/models/${encodeURIComponent(model)}:generateContent?key=${key}`;
   }
   resolveEndpoint(baseUrl) {
     const trimmed = baseUrl.trim().replace(/\/+$/g, "");
@@ -429,8 +477,23 @@ Content-Type: ${input.mimeType || "application/octet-stream"}\r
     }
     return merged.buffer;
   }
+  extractGeminiText(value) {
+    if (!value || typeof value !== "object") {
+      return "";
+    }
+    const root = value;
+    const candidates = root.candidates ?? [];
+    for (const candidate of candidates) {
+      const parts = candidate.content?.parts ?? [];
+      const texts = parts.map((part) => typeof part.text === "string" ? part.text.trim() : "").filter((text) => text.length > 0);
+      if (texts.length > 0) {
+        return texts.join("\n");
+      }
+    }
+    return "";
+  }
   extractText(response) {
-    const fromJson = this.extractTextFromUnknown(response.json);
+    const fromJson = this.extractTextFromUnknown(this.safeGetJson(response));
     if (fromJson) {
       return fromJson;
     }
@@ -445,7 +508,7 @@ Content-Type: ${input.mimeType || "application/octet-stream"}\r
     return rawText;
   }
   extractError(response) {
-    const json = response.json;
+    const json = this.safeGetJson(response);
     if (json && typeof json === "object") {
       const message = json.error?.message;
       if (message) {
@@ -470,6 +533,23 @@ Content-Type: ${input.mimeType || "application/octet-stream"}\r
       return candidate.text.trim();
     }
     return "";
+  }
+  safeGetJson(response) {
+    try {
+      return response.json;
+    } catch {
+      return null;
+    }
+  }
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 32768;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
   }
   tryParseJson(raw) {
     try {
@@ -625,6 +705,16 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
 
 // src/settings-tab.ts
 var import_obsidian4 = require("obsidian");
+var PROVIDER_DEFAULTS = {
+  "openai-compatible": {
+    baseUrl: "https://api.openai.com/v1",
+    model: "whisper-1"
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    model: "gemini-2.5-flash"
+  }
+};
 var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -646,7 +736,33 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("API Base URL").setDesc("\u4F8B\u5982 https://api.openai.com/v1").addText(
+    new import_obsidian4.Setting(containerEl).setName("API Provider").setDesc("\u9009\u62E9\u8F6C\u5199\u63A5\u53E3\u7C7B\u578B\uFF1AOpenAI \u517C\u5BB9\u6216 Gemini\u3002").addDropdown(
+      (dropdown) => dropdown.addOption("openai-compatible", "OpenAI Compatible").addOption("gemini", "Gemini").setValue(this.plugin.settings.apiProvider).onChange(async (value) => {
+        if (value === "openai-compatible" || value === "gemini") {
+          this.plugin.settings.apiProvider = value;
+          this.plugin.settings.apiBaseUrl = PROVIDER_DEFAULTS[value].baseUrl;
+          this.plugin.settings.model = PROVIDER_DEFAULTS[value].model;
+        }
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("API Base URL \u9884\u8BBE").setDesc("\u4E00\u952E\u586B\u5165\u5E38\u7528\u5730\u5740\u3002").addDropdown((dropdown) => {
+      if (this.plugin.settings.apiProvider === "gemini") {
+        dropdown.addOption(
+          "https://generativelanguage.googleapis.com/v1beta",
+          "Gemini \u5B98\u65B9"
+        );
+      } else {
+        dropdown.addOption("https://api.openai.com/v1", "OpenAI \u5B98\u65B9");
+      }
+      dropdown.setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
+        this.plugin.settings.apiBaseUrl = value.trim();
+        await this.plugin.saveSettings();
+        this.display();
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("API Base URL").setDesc("OpenAI \u517C\u5BB9: https://api.openai.com/v1\uFF1BGemini: https://generativelanguage.googleapis.com/v1beta").addText(
       (text) => text.setPlaceholder("https://api.openai.com/v1").setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
         this.plugin.settings.apiBaseUrl = value.trim();
         await this.plugin.saveSettings();
@@ -657,6 +773,18 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
       text.setPlaceholder("sk-...").setValue(this.plugin.settings.apiKey).onChange(async (value) => {
         this.plugin.settings.apiKey = value.trim();
         await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Model \u9884\u8BBE").setDesc("\u4E00\u952E\u9009\u62E9\u5E38\u89C1\u6A21\u578B\u3002").addDropdown((dropdown) => {
+      if (this.plugin.settings.apiProvider === "gemini") {
+        dropdown.addOption("gemini-2.5-flash", "gemini-2.5-flash").addOption("gemini-2.5-pro", "gemini-2.5-pro");
+      } else {
+        dropdown.addOption("whisper-1", "whisper-1");
+      }
+      dropdown.setValue(this.plugin.settings.model).onChange(async (value) => {
+        this.plugin.settings.model = value.trim();
+        await this.plugin.saveSettings();
+        this.display();
       });
     });
     new import_obsidian4.Setting(containerEl).setName("Model").setDesc("\u8F6C\u5199\u6A21\u578B\u540D\uFF0C\u6309\u4F60\u7684\u63A5\u53E3\u8981\u6C42\u586B\u5199\u3002").addText(
@@ -694,6 +822,7 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
 var DEFAULT_SETTINGS = {
   defaultNoteFile: "drafts.md",
   attachmentDir: "attachments",
+  apiProvider: "openai-compatible",
   apiBaseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "whisper-1",

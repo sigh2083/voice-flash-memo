@@ -2,6 +2,17 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 
 import type VoiceFlashMemoPlugin from "../main";
 
+const PROVIDER_DEFAULTS = {
+  "openai-compatible": {
+    baseUrl: "https://api.openai.com/v1",
+    model: "whisper-1",
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    model: "gemini-2.5-flash",
+  },
+} as const;
+
 export class VoiceFlashSettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: VoiceFlashMemoPlugin) {
     super(app, plugin);
@@ -40,8 +51,47 @@ export class VoiceFlashSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("API Provider")
+      .setDesc("选择转写接口类型：OpenAI 兼容或 Gemini。")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("openai-compatible", "OpenAI Compatible")
+          .addOption("gemini", "Gemini")
+          .setValue(this.plugin.settings.apiProvider)
+          .onChange(async (value: string) => {
+            if (value === "openai-compatible" || value === "gemini") {
+              this.plugin.settings.apiProvider = value;
+              this.plugin.settings.apiBaseUrl = PROVIDER_DEFAULTS[value].baseUrl;
+              this.plugin.settings.model = PROVIDER_DEFAULTS[value].model;
+            }
+            await this.plugin.saveSettings();
+            this.display();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("API Base URL 预设")
+      .setDesc("一键填入常用地址。")
+      .addDropdown((dropdown) => {
+        if (this.plugin.settings.apiProvider === "gemini") {
+          dropdown.addOption(
+            "https://generativelanguage.googleapis.com/v1beta",
+            "Gemini 官方",
+          );
+        } else {
+          dropdown.addOption("https://api.openai.com/v1", "OpenAI 官方");
+        }
+
+        dropdown.setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
+          this.plugin.settings.apiBaseUrl = value.trim();
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("API Base URL")
-      .setDesc("例如 https://api.openai.com/v1")
+      .setDesc("OpenAI 兼容: https://api.openai.com/v1；Gemini: https://generativelanguage.googleapis.com/v1beta")
       .addText((text) =>
         text
           .setPlaceholder("https://api.openai.com/v1")
@@ -64,6 +114,25 @@ export class VoiceFlashSettingTab extends PluginSettingTab {
             this.plugin.settings.apiKey = value.trim();
             await this.plugin.saveSettings();
           });
+      });
+
+    new Setting(containerEl)
+      .setName("Model 预设")
+      .setDesc("一键选择常见模型。")
+      .addDropdown((dropdown) => {
+        if (this.plugin.settings.apiProvider === "gemini") {
+          dropdown
+            .addOption("gemini-2.5-flash", "gemini-2.5-flash")
+            .addOption("gemini-2.5-pro", "gemini-2.5-pro");
+        } else {
+          dropdown.addOption("whisper-1", "whisper-1");
+        }
+
+        dropdown.setValue(this.plugin.settings.model).onChange(async (value) => {
+          this.plugin.settings.model = value.trim();
+          await this.plugin.saveSettings();
+          this.display();
+        });
       });
 
     new Setting(containerEl)

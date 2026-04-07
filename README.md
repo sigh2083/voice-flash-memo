@@ -9,27 +9,49 @@
 
 ## 已实现范围
 
-- 命令入口与 Ribbon 入口
+- 命令入口（`voiceflash`）与 Ribbon 入口
 - 轻量录音弹窗（录音状态、计时器、底部状态区）
 - 手动停止录音
 - 音频保存到指定附件目录
-- AI 转写（`API Base URL / API Key / Model / Prompt`）
+- AI 转写（支持 `OpenAI Compatible` 与 `Gemini`）
 - 成功后一次性追加到默认笔记底部
-- 可选插入 `[[录音文件]]`
+- 可选插入录音链接（支持多种样式）
 
 ## 写入格式
 
+默认推荐（`仅编辑模式可见（recording callout）`）：
+
 ```markdown
-- [[attachments/2026-04-07_17-14-07.m4a]]
 录音转写内容
-<!-- edited: 2026-04-07 16:14:11 +03:00 -->
+
+> [!recording]-
+> ![[attachments/2026-04-07_17-14-07.m4a]]
+> <!-- edited: 2026-04-07 16:14:11 +03:00 -->
 ```
 
-## Sync 状态说明
+其他可选样式：
 
-- 当前公开 Obsidian Plugin API 未提供官方 Sync 状态读取接口。
-- 插件采用 fallback：启动后显示“Sync 正在进行”，到达合理时间后显示“Sync 已完成”。
-- 代码中保留了未来官方接口的探测点（若将来公开 API，可直接接入）。
+- `![[...]]`（嵌入播放器）
+- `[[...]]`（普通双链）
+- `<!-- audio: [[...]] -->`（注释文本）
+
+## Sync 说明
+
+- 当前公开 Obsidian Plugin API 没有稳定的“Sync 已完成”可读接口。
+- 本插件不会再显示伪同步状态，也不会假定同步完成。
+- 因此无法在代码层做到“严格保证同步已完成”。
+- 实操建议：录音前/录音后观察 Obsidian 官方 Sync 图标状态，确认完成后再退出或切后台。
+
+## API Provider 示例
+
+- OpenAI Compatible
+  - API Provider: `OpenAI Compatible`
+  - API Base URL: `https://api.openai.com/v1`
+  - Model: `whisper-1`
+- Gemini
+  - API Provider: `Gemini`
+  - API Base URL: `https://generativelanguage.googleapis.com/v1beta`
+  - Model: `gemini-2.5-flash`
 
 ## 移动端后台限制
 

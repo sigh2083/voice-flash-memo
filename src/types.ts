@@ -1,6 +1,7 @@
 export interface VoiceFlashSettings {
   defaultNoteFile: string;
   attachmentDir: string;
+  apiProvider: "openai-compatible" | "gemini";
   apiBaseUrl: string;
   apiKey: string;
   model: string;
@@ -13,6 +14,7 @@ export interface VoiceFlashSettings {
 export const DEFAULT_SETTINGS: VoiceFlashSettings = {
   defaultNoteFile: "drafts.md",
   attachmentDir: "attachments",
+  apiProvider: "openai-compatible",
   apiBaseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "whisper-1",

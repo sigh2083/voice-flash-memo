@@ -12,6 +12,17 @@ export class TranscriptionService {
   async transcribe(settings: VoiceFlashSettings, input: TranscriptionInput): Promise<string> {
     this.validateSettings(settings);
 
+    if (settings.apiProvider === "gemini") {
+      return this.transcribeWithGemini(settings, input);
+    }
+
+    return this.transcribeWithOpenAiCompatible(settings, input);
+  }
+
+  private async transcribeWithOpenAiCompatible(
+    settings: VoiceFlashSettings,
+    input: TranscriptionInput,
+  ): Promise<string> {
     const endpoint = this.resolveEndpoint(settings.apiBaseUrl);
     const boundary = `----voice-flash-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 
@@ -40,6 +51,50 @@ export class TranscriptionService {
     return text;
   }
 
+  private async transcribeWithGemini(
+    settings: VoiceFlashSettings,
+    input: TranscriptionInput,
+  ): Promise<string> {
+    const endpoint = this.resolveGeminiEndpoint(settings);
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: settings.prompt.trim() || "请尽量忠实转写，整理口语、断句和标点。" },
+            {
+              inline_data: {
+                mime_type: input.mimeType || "audio/mp4",
+                data: this.arrayBufferToBase64(input.audioBuffer),
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const response = await requestUrl({
+      url: endpoint,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      throw: false,
+    });
+
+    if (response.status >= 400) {
+      throw new Error(this.extractError(response));
+    }
+
+    const json = this.safeGetJson(response);
+    const text = this.extractGeminiText(json ?? this.tryParseJson(response.text ?? ""));
+    if (!text) {
+      throw new Error("Gemini 返回为空。请检查模型、权限或音频格式。");
+    }
+
+    return text;
+  }
+
   private validateSettings(settings: VoiceFlashSettings): void {
     if (!settings.apiBaseUrl.trim()) {
       throw new Error("请先在设置中填写 API Base URL。");
@@ -50,6 +105,13 @@ export class TranscriptionService {
     if (!settings.model.trim()) {
       throw new Error("请先在设置中填写 Model。");
     }
+  }
+
+  private resolveGeminiEndpoint(settings: VoiceFlashSettings): string {
+    const base = settings.apiBaseUrl.trim().replace(/\/+$/g, "");
+    const model = settings.model.trim();
+    const key = encodeURIComponent(settings.apiKey.trim());
+    return `${base}/models/${encodeURIComponent(model)}:generateContent?key=${key}`;
   }
 
   private resolveEndpoint(baseUrl: string): string {
@@ -108,8 +170,38 @@ export class TranscriptionService {
     return merged.buffer;
   }
 
+  private extractGeminiText(value: unknown): string {
+    if (!value || typeof value !== "object") {
+      return "";
+    }
+
+    const root = value as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            text?: string;
+          }>;
+        };
+      }>;
+    };
+
+    const candidates = root.candidates ?? [];
+    for (const candidate of candidates) {
+      const parts = candidate.content?.parts ?? [];
+      const texts = parts
+        .map((part) => (typeof part.text === "string" ? part.text.trim() : ""))
+        .filter((text) => text.length > 0);
+
+      if (texts.length > 0) {
+        return texts.join("\n");
+      }
+    }
+
+    return "";
+  }
+
   private extractText(response: RequestUrlResponse): string {
-    const fromJson = this.extractTextFromUnknown(response.json);
+    const fromJson = this.extractTextFromUnknown(this.safeGetJson(response));
     if (fromJson) {
       return fromJson;
     }
@@ -128,7 +220,7 @@ export class TranscriptionService {
   }
 
   private extractError(response: RequestUrlResponse): string {
-    const json = response.json;
+    const json = this.safeGetJson(response);
     if (json && typeof json === "object") {
       const message = (json as { error?: { message?: string } }).error?.message;
       if (message) {
@@ -159,6 +251,27 @@ export class TranscriptionService {
     }
 
     return "";
+  }
+
+  private safeGetJson(response: RequestUrlResponse): unknown {
+    try {
+      return response.json;
+    } catch {
+      return null;
+    }
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+
+    return btoa(binary);
   }
 
   private tryParseJson(raw: string): unknown {
