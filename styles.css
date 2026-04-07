@@ -1,0 +1,59 @@
+.voice-flash-modal .modal-content {
+  padding-top: 12px;
+}
+
+.voice-flash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+}
+
+.voice-flash-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.voice-flash-state {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+
+.voice-flash-timer {
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.voice-flash-stop-btn {
+  width: 100%;
+  min-height: 40px;
+}
+
+.voice-flash-footer {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-flash-flow {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.voice-flash-prompt-setting {
+  width: 100%;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "voice-flash-memo",
+  "version": "0.1.0",
+  "description": "Obsidian plugin for fast voice flash capture and AI transcription",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.47",
+    "esbuild": "^0.25.5",
+    "obsidian": "latest",
+    "typescript": "^5.8.3"
+  }
+}
