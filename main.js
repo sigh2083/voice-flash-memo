@@ -23,10 +23,10 @@ __export(main_exports, {
   default: () => VoiceFlashMemoPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/recording-modal.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/note-writer.ts
 var import_obsidian = require("obsidian");
@@ -343,8 +343,111 @@ var RecordingController = class _RecordingController {
   }
 };
 
-// src/transcription-service.ts
+// src/transcription-buffer-modal.ts
 var import_obsidian2 = require("obsidian");
+var TranscriptionBufferModal = class extends import_obsidian2.Modal {
+  constructor(app, initialText, autoCommitMs) {
+    super(app);
+    this.initialText = initialText;
+    this.autoCommitMs = autoCommitMs;
+    this.autoTimer = null;
+    this.resolved = false;
+    this.editingStarted = false;
+    this.resultPromise = new Promise((resolve) => {
+      this.resolveResult = resolve;
+    });
+  }
+  openAndWait() {
+    this.open();
+    return this.resultPromise;
+  }
+  onOpen() {
+    this.modalEl.addClass("voice-flash-buffer-modal");
+    const { contentEl } = this;
+    contentEl.empty();
+    const wrapper = contentEl.createDiv({ cls: "voice-flash-buffer-card" });
+    wrapper.createEl("h3", { text: "\u786E\u8BA4\u8F6C\u5199\u5185\u5BB9" });
+    this.textareaEl = wrapper.createEl("textarea", { cls: "voice-flash-buffer-input" });
+    this.textareaEl.value = this.initialText;
+    this.hintEl = wrapper.createDiv({
+      cls: "voice-flash-buffer-hint",
+      text: `${Math.floor(this.autoCommitMs / 1e3)} \u79D2\u540E\u81EA\u52A8\u5199\u5165\uFF0C\u53EF\u70B9 OK \u7ACB\u5373\u5199\u5165\u3002`
+    });
+    const actions = wrapper.createDiv({ cls: "voice-flash-buffer-actions" });
+    const okButton = actions.createEl("button", { cls: "mod-cta", text: "OK" });
+    okButton.addEventListener("click", () => {
+      this.commitAndClose();
+    });
+    this.textareaEl.focus();
+    this.textareaEl.setSelectionRange(this.textareaEl.value.length, this.textareaEl.value.length);
+    this.bindEditingSignals();
+    this.scheduleAutoCommit();
+  }
+  onClose() {
+    if (this.autoTimer !== null) {
+      window.clearTimeout(this.autoTimer);
+      this.autoTimer = null;
+    }
+    this.modalEl.removeClass("voice-flash-buffer-modal");
+    if (!this.resolved) {
+      this.resolved = true;
+      this.resolveResult(this.textareaEl?.value ?? this.initialText);
+    }
+    this.contentEl.empty();
+  }
+  commitAndClose() {
+    if (this.resolved) {
+      return;
+    }
+    this.resolved = true;
+    this.resolveResult(this.textareaEl.value);
+    this.close();
+  }
+  bindEditingSignals() {
+    const beginEditing = () => {
+      if (!this.editingStarted) {
+        this.editingStarted = true;
+        this.hintEl.setText("\u68C0\u6D4B\u5230\u4F60\u6B63\u5728\u7F16\u8F91\uFF0C\u5DF2\u6682\u505C\u81EA\u52A8\u5199\u5165\u3002\u70B9\u51FB OK \u63D0\u4EA4\u3002");
+      }
+      this.clearAutoTimer();
+    };
+    this.textareaEl.addEventListener("focus", () => {
+      beginEditing();
+    });
+    this.textareaEl.addEventListener("input", () => {
+      beginEditing();
+    });
+    this.textareaEl.addEventListener("keydown", () => {
+      beginEditing();
+    });
+    this.textareaEl.addEventListener("blur", () => {
+      if (this.resolved) {
+        return;
+      }
+      if (this.editingStarted) {
+        this.hintEl.setText(
+          `\u4F60\u5DF2\u79BB\u5F00\u7F16\u8F91\u6846\uFF0C\u82E5 ${Math.floor(this.autoCommitMs / 1e3)} \u79D2\u5185\u65E0\u64CD\u4F5C\u5C06\u81EA\u52A8\u5199\u5165\u3002`
+        );
+      }
+      this.scheduleAutoCommit();
+    });
+  }
+  scheduleAutoCommit() {
+    this.clearAutoTimer();
+    this.autoTimer = window.setTimeout(() => {
+      this.commitAndClose();
+    }, this.autoCommitMs);
+  }
+  clearAutoTimer() {
+    if (this.autoTimer !== null) {
+      window.clearTimeout(this.autoTimer);
+      this.autoTimer = null;
+    }
+  }
+};
+
+// src/transcription-service.ts
+var import_obsidian3 = require("obsidian");
 var TranscriptionService = class {
   async transcribe(settings, input) {
     this.validateSettings(settings);
@@ -357,7 +460,7 @@ var TranscriptionService = class {
     const endpoint = this.resolveEndpoint(settings.apiBaseUrl);
     const boundary = `----voice-flash-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
     const body = this.buildMultipartBody(boundary, settings, input);
-    const response = await (0, import_obsidian2.requestUrl)({
+    const response = await (0, import_obsidian3.requestUrl)({
       url: endpoint,
       method: "POST",
       headers: {
@@ -393,7 +496,7 @@ var TranscriptionService = class {
         }
       ]
     };
-    const response = await (0, import_obsidian2.requestUrl)({
+    const response = await (0, import_obsidian3.requestUrl)({
       url: endpoint,
       method: "POST",
       headers: {
@@ -561,7 +664,7 @@ Content-Type: ${input.mimeType || "application/octet-stream"}\r
 };
 
 // src/recording-modal.ts
-var VoiceRecordingModal = class extends import_obsidian3.Modal {
+var VoiceRecordingModal = class extends import_obsidian4.Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -617,7 +720,7 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
       this.stateEl.setText("\u5F55\u97F3\u5931\u8D25");
       this.setFlowStatus(message);
       this.switchToCloseButton();
-      new import_obsidian3.Notice(`\u5F55\u97F3\u542F\u52A8\u5931\u8D25\uFF1A${message}`, 6e3);
+      new import_obsidian4.Notice(`\u5F55\u97F3\u542F\u52A8\u5931\u8D25\uFF1A${message}`, 6e3);
     }
   }
   async stopAndProcess() {
@@ -625,7 +728,7 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
       return;
     }
     if (!this.recorder) {
-      new import_obsidian3.Notice("\u5F55\u97F3\u5C1A\u672A\u5F00\u59CB\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002", 4e3);
+      new import_obsidian4.Notice("\u5F55\u97F3\u5C1A\u672A\u5F00\u59CB\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002", 4e3);
       return;
     }
     this.stopRequested = true;
@@ -649,11 +752,13 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
         fileName: savedAudio.fileName,
         mimeType: recording.mimeType
       });
+      this.setFlowStatus("\u8F6C\u5199\u5B8C\u6210\uFF0C\u7B49\u5F85\u786E\u8BA4\uFF085 \u79D2\u540E\u81EA\u52A8\u5199\u5165\uFF09...");
+      const finalTranscription = await new TranscriptionBufferModal(this.app, transcription, 5e3).openAndWait();
       this.setFlowStatus("\u6B63\u5728\u5199\u5165\u76EE\u6807\u7B14\u8BB0...");
-      await appendTranscriptionEntry(this.app, this.plugin.settings, savedAudio.path, transcription);
+      await appendTranscriptionEntry(this.app, this.plugin.settings, savedAudio.path, finalTranscription);
       this.stateEl.setText("\u5DF2\u5B8C\u6210");
       this.setFlowStatus("\u5DF2\u6210\u529F\u5199\u5165\u3002\u5373\u5C06\u5173\u95ED\u7A97\u53E3...");
-      new import_obsidian3.Notice("\u8BED\u97F3\u95EA\u5FF5\u5DF2\u5199\u5165\u76EE\u6807\u7B14\u8BB0\u3002", 3500);
+      new import_obsidian4.Notice("\u8BED\u97F3\u95EA\u5FF5\u5DF2\u5199\u5165\u76EE\u6807\u7B14\u8BB0\u3002", 3500);
       window.setTimeout(() => {
         if (!this.disposed) {
           this.close();
@@ -664,7 +769,7 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
       this.stateEl.setText("\u5931\u8D25");
       this.setFlowStatus(message);
       this.switchToCloseButton();
-      new import_obsidian3.Notice(`\u8BED\u97F3\u95EA\u5FF5\u5931\u8D25\uFF1A${message}`, 7e3);
+      new import_obsidian4.Notice(`\u8BED\u97F3\u95EA\u5FF5\u5931\u8D25\uFF1A${message}`, 7e3);
     }
   }
   startTimer() {
@@ -704,7 +809,7 @@ var VoiceRecordingModal = class extends import_obsidian3.Modal {
 };
 
 // src/settings-tab.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var PROVIDER_DEFAULTS = {
   "openai-compatible": {
     baseUrl: "https://api.openai.com/v1",
@@ -715,7 +820,7 @@ var PROVIDER_DEFAULTS = {
     model: "gemini-2.5-flash"
   }
 };
-var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
+var VoiceFlashSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -724,19 +829,19 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Voice Flash Memo \u8BBE\u7F6E" });
-    new import_obsidian4.Setting(containerEl).setName("\u9ED8\u8BA4\u5199\u5165\u6587\u4EF6").setDesc("\u6BCF\u6B21\u8F6C\u5199\u6210\u529F\u540E\u8FFD\u52A0\u5230\u6B64\u6587\u4EF6\u5E95\u90E8\u3002\u4E0D\u5B58\u5728\u4F1A\u81EA\u52A8\u521B\u5EFA\u3002").addText(
+    new import_obsidian5.Setting(containerEl).setName("\u9ED8\u8BA4\u5199\u5165\u6587\u4EF6").setDesc("\u6BCF\u6B21\u8F6C\u5199\u6210\u529F\u540E\u8FFD\u52A0\u5230\u6B64\u6587\u4EF6\u5E95\u90E8\u3002\u4E0D\u5B58\u5728\u4F1A\u81EA\u52A8\u521B\u5EFA\u3002").addText(
       (text) => text.setPlaceholder("drafts.md").setValue(this.plugin.settings.defaultNoteFile).onChange(async (value) => {
         this.plugin.settings.defaultNoteFile = value.trim() || "drafts.md";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u9644\u4EF6\u76EE\u5F55").setDesc("\u5F55\u97F3\u6587\u4EF6\u4FDD\u5B58\u76EE\u5F55\u3002\u9ED8\u8BA4 attachments\u3002").addText(
+    new import_obsidian5.Setting(containerEl).setName("\u9644\u4EF6\u76EE\u5F55").setDesc("\u5F55\u97F3\u6587\u4EF6\u4FDD\u5B58\u76EE\u5F55\u3002\u9ED8\u8BA4 attachments\u3002").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentDir).onChange(async (value) => {
         this.plugin.settings.attachmentDir = value.trim() || "attachments";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("API Provider").setDesc("\u9009\u62E9\u8F6C\u5199\u63A5\u53E3\u7C7B\u578B\uFF1AOpenAI \u517C\u5BB9\u6216 Gemini\u3002").addDropdown(
+    new import_obsidian5.Setting(containerEl).setName("API Provider").setDesc("\u9009\u62E9\u8F6C\u5199\u63A5\u53E3\u7C7B\u578B\uFF1AOpenAI \u517C\u5BB9\u6216 Gemini\u3002").addDropdown(
       (dropdown) => dropdown.addOption("openai-compatible", "OpenAI Compatible").addOption("gemini", "Gemini").setValue(this.plugin.settings.apiProvider).onChange(async (value) => {
         if (value === "openai-compatible" || value === "gemini") {
           this.plugin.settings.apiProvider = value;
@@ -747,7 +852,7 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.display();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("API Base URL \u9884\u8BBE").setDesc("\u4E00\u952E\u586B\u5165\u5E38\u7528\u5730\u5740\u3002").addDropdown((dropdown) => {
+    new import_obsidian5.Setting(containerEl).setName("API Base URL \u9884\u8BBE").setDesc("\u4E00\u952E\u586B\u5165\u5E38\u7528\u5730\u5740\u3002").addDropdown((dropdown) => {
       if (this.plugin.settings.apiProvider === "gemini") {
         dropdown.addOption(
           "https://generativelanguage.googleapis.com/v1beta",
@@ -762,20 +867,20 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.display();
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("API Base URL").setDesc("OpenAI \u517C\u5BB9: https://api.openai.com/v1\uFF1BGemini: https://generativelanguage.googleapis.com/v1beta").addText(
+    new import_obsidian5.Setting(containerEl).setName("API Base URL").setDesc("OpenAI \u517C\u5BB9: https://api.openai.com/v1\uFF1BGemini: https://generativelanguage.googleapis.com/v1beta").addText(
       (text) => text.setPlaceholder("https://api.openai.com/v1").setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
         this.plugin.settings.apiBaseUrl = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("API Key").setDesc("\u7528\u4E8E\u97F3\u9891\u8F6C\u5199\u63A5\u53E3\u9274\u6743\u3002").addText((text) => {
+    new import_obsidian5.Setting(containerEl).setName("API Key").setDesc("\u7528\u4E8E\u97F3\u9891\u8F6C\u5199\u63A5\u53E3\u9274\u6743\u3002").addText((text) => {
       text.inputEl.type = "password";
       text.setPlaceholder("sk-...").setValue(this.plugin.settings.apiKey).onChange(async (value) => {
         this.plugin.settings.apiKey = value.trim();
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("Model \u9884\u8BBE").setDesc("\u4E00\u952E\u9009\u62E9\u5E38\u89C1\u6A21\u578B\u3002").addDropdown((dropdown) => {
+    new import_obsidian5.Setting(containerEl).setName("Model \u9884\u8BBE").setDesc("\u4E00\u952E\u9009\u62E9\u5E38\u89C1\u6A21\u578B\u3002").addDropdown((dropdown) => {
       if (this.plugin.settings.apiProvider === "gemini") {
         dropdown.addOption("gemini-2.5-flash", "gemini-2.5-flash").addOption("gemini-2.5-pro", "gemini-2.5-pro");
       } else {
@@ -787,13 +892,13 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.display();
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("Model").setDesc("\u8F6C\u5199\u6A21\u578B\u540D\uFF0C\u6309\u4F60\u7684\u63A5\u53E3\u8981\u6C42\u586B\u5199\u3002").addText(
+    new import_obsidian5.Setting(containerEl).setName("Model").setDesc("\u8F6C\u5199\u6A21\u578B\u540D\uFF0C\u6309\u4F60\u7684\u63A5\u53E3\u8981\u6C42\u586B\u5199\u3002").addText(
       (text) => text.setPlaceholder("whisper-1").setValue(this.plugin.settings.model).onChange(async (value) => {
         this.plugin.settings.model = value.trim() || "whisper-1";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("Prompt").setDesc("\u9ED8\u8BA4\u63D0\u793A\u8BCD\uFF1A\u5C3D\u91CF\u5FE0\u5B9E\u8F6C\u5199\uFF0C\u6574\u7406\u53E3\u8BED\u3001\u65AD\u53E5\u548C\u6807\u70B9\u3002").addTextArea((text) => {
+    new import_obsidian5.Setting(containerEl).setName("Prompt").setDesc("\u9ED8\u8BA4\u63D0\u793A\u8BCD\uFF1A\u5C3D\u91CF\u5FE0\u5B9E\u8F6C\u5199\uFF0C\u6574\u7406\u53E3\u8BED\u3001\u65AD\u53E5\u548C\u6807\u70B9\u3002").addTextArea((text) => {
       text.setPlaceholder("\u8BF7\u5C3D\u91CF\u5FE0\u5B9E\u8F6C\u5199\uFF0C\u6574\u7406\u53E3\u8BED\u3001\u65AD\u53E5\u548C\u6807\u70B9\u3002").setValue(this.plugin.settings.prompt).onChange(async (value) => {
         this.plugin.settings.prompt = value;
         await this.plugin.saveSettings();
@@ -801,13 +906,13 @@ var VoiceFlashSettingTab = class extends import_obsidian4.PluginSettingTab {
       text.inputEl.rows = 4;
       text.inputEl.addClass("voice-flash-prompt-setting");
     });
-    new import_obsidian4.Setting(containerEl).setName("\u63D2\u5165\u5F55\u97F3\u53CC\u94FE").setDesc("\u5F00\u542F\u540E\u5728\u5199\u5165\u5757\u9996\u884C\u63D2\u5165 [[\u5F55\u97F3\u6587\u4EF6]]\u3002").addToggle(
+    new import_obsidian5.Setting(containerEl).setName("\u63D2\u5165\u5F55\u97F3\u53CC\u94FE").setDesc("\u5F00\u542F\u540E\u5728\u5199\u5165\u5757\u9996\u884C\u63D2\u5165 [[\u5F55\u97F3\u6587\u4EF6]]\u3002").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.insertAudioLink).onChange(async (value) => {
         this.plugin.settings.insertAudioLink = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u5F55\u97F3\u94FE\u63A5\u6837\u5F0F").setDesc("\u666E\u901A\u53CC\u94FE\u3001\u5D4C\u5165\u64AD\u653E\u5668\uFF0C\u6216\u4EC5\u5728\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\u3002").addDropdown(
+    new import_obsidian5.Setting(containerEl).setName("\u5F55\u97F3\u94FE\u63A5\u6837\u5F0F").setDesc("\u666E\u901A\u53CC\u94FE\u3001\u5D4C\u5165\u64AD\u653E\u5668\uFF0C\u6216\u4EC5\u5728\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\u3002").addDropdown(
       (dropdown) => dropdown.addOption("edit-only", "\u4EC5\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\uFF08recording callout\uFF09").addOption("embed", "\u5D4C\u5165\u64AD\u653E\u5668 ![[...]]").addOption("wikilink", "\u666E\u901A\u53CC\u94FE [[...]]").addOption("hidden-comment", "\u4EC5\u7F16\u8F91\u6A21\u5F0F\u53EF\u89C1\uFF08\u6CE8\u91CA\uFF0C\u975E\u771F\u5B9E\u53CC\u94FE\uFF09").setValue(this.plugin.settings.audioLinkStyle).onChange(async (value) => {
         if (value === "embed" || value === "wikilink" || value === "edit-only" || value === "hidden-comment") {
           this.plugin.settings.audioLinkStyle = value;
@@ -833,7 +938,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // main.ts
-var VoiceFlashMemoPlugin = class extends import_obsidian5.Plugin {
+var VoiceFlashMemoPlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULT_SETTINGS };
@@ -862,7 +967,7 @@ var VoiceFlashMemoPlugin = class extends import_obsidian5.Plugin {
   }
   openRecordingModal() {
     if (!this.settings.apiBaseUrl.trim() || !this.settings.model.trim()) {
-      new import_obsidian5.Notice("\u5EFA\u8BAE\u5148\u5728\u8BBE\u7F6E\u4E2D\u786E\u8BA4 AI \u63A5\u53E3\u53C2\u6570\uFF0C\u518D\u5F00\u59CB\u5F55\u97F3\u3002", 3500);
+      new import_obsidian6.Notice("\u5EFA\u8BAE\u5148\u5728\u8BBE\u7F6E\u4E2D\u786E\u8BA4 AI \u63A5\u53E3\u53C2\u6570\uFF0C\u518D\u5F00\u59CB\u5F55\u97F3\u3002", 3500);
     }
     new VoiceRecordingModal(this.app, this).open();
   }

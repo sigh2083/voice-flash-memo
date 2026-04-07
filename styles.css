@@ -58,7 +58,39 @@
   width: 100%;
 }
 
+.voice-flash-buffer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-flash-buffer-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.voice-flash-buffer-input {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+}
+
+.voice-flash-buffer-hint {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.voice-flash-buffer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Keep recording callout visible in edit mode but hidden in reading mode. */
+.callout[data-callout="recording"] {
+  --callout-color: 128, 128, 128;
+  --callout-icon: lucide-mic;
+}
+
 .markdown-reading-view .callout[data-callout="recording"],
 .markdown-preview-view .callout[data-callout="recording"] {
   display: none;

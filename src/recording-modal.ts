@@ -4,6 +4,7 @@ import type VoiceFlashMemoPlugin from "../main";
 import { appendTranscriptionEntry, saveAudioToVault } from "./note-writer";
 import { RecordingController } from "./recording-service";
 import { formatTimer } from "./time";
+import { TranscriptionBufferModal } from "./transcription-buffer-modal";
 import { TranscriptionService } from "./transcription-service";
 
 export class VoiceRecordingModal extends Modal {
@@ -118,8 +119,11 @@ export class VoiceRecordingModal extends Modal {
         mimeType: recording.mimeType,
       });
 
+      this.setFlowStatus("转写完成，等待确认（5 秒后自动写入）...");
+      const finalTranscription = await new TranscriptionBufferModal(this.app, transcription, 5000).openAndWait();
+
       this.setFlowStatus("正在写入目标笔记...");
-      await appendTranscriptionEntry(this.app, this.plugin.settings, savedAudio.path, transcription);
+      await appendTranscriptionEntry(this.app, this.plugin.settings, savedAudio.path, finalTranscription);
 
       this.stateEl.setText("已完成");
       this.setFlowStatus("已成功写入。即将关闭窗口...");
