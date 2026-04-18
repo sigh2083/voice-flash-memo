@@ -54,8 +54,57 @@
   line-height: 1.35;
 }
 
+.voice-flash-existing-file {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .voice-flash-prompt-setting {
   width: 100%;
+}
+
+.voice-flash-api-manager-desc {
+  margin-top: -8px;
+  color: var(--text-muted);
+}
+
+.voice-flash-api-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.voice-flash-api-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.voice-flash-api-table th,
+.voice-flash-api-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--background-modifier-border);
+  vertical-align: top;
+}
+
+.voice-flash-api-table tbody tr.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+}
+
+.voice-flash-api-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.voice-flash-picker-title {
+  font-weight: 600;
+}
+
+.voice-flash-picker-path {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  word-break: break-all;
 }
 
 .voice-flash-buffer-card {
@@ -91,7 +140,8 @@
   --callout-icon: lucide-mic;
 }
 
+.workspace-leaf-content[data-mode="preview"] .callout[data-callout="recording"],
 .markdown-reading-view .callout[data-callout="recording"],
 .markdown-preview-view .callout[data-callout="recording"] {
-  display: none;
+  display: none !important;
 }

@@ -113,14 +113,19 @@ export class VoiceRecordingModal extends Modal {
       );
 
       this.setFlowStatus("正在调用 AI 转写...");
-      const transcription = await this.transcriptionService.transcribe(this.plugin.settings, {
+      const result = await this.transcriptionService.transcribe(this.plugin.settings, {
         audioBuffer: await recording.blob.arrayBuffer(),
         fileName: savedAudio.fileName,
         mimeType: recording.mimeType,
       });
+      const fallbackCount = Math.max(0, result.attemptedProfiles.length - 1);
+      if (fallbackCount > 0) {
+        this.setFlowStatus(`已自动切换到 ${result.profile.name}，转写完成，等待确认（5 秒后自动写入）...`);
+      } else {
+        this.setFlowStatus(`转写完成（${result.profile.name}），等待确认（5 秒后自动写入）...`);
+      }
 
-      this.setFlowStatus("转写完成，等待确认（5 秒后自动写入）...");
-      const finalTranscription = await new TranscriptionBufferModal(this.app, transcription, 5000).openAndWait();
+      const finalTranscription = await new TranscriptionBufferModal(this.app, result.text, 5000).openAndWait();
 
       this.setFlowStatus("正在写入目标笔记...");
       await appendTranscriptionEntry(this.app, this.plugin.settings, savedAudio.path, finalTranscription);

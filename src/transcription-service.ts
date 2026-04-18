@@ -1,6 +1,6 @@
 import { RequestUrlResponse, requestUrl } from "obsidian";
 
-import type { VoiceFlashSettings } from "./types";
+import type { ApiProfile, VoiceFlashSettings } from "./types";
 
 export interface TranscriptionInput {
   audioBuffer: ArrayBuffer;
@@ -8,31 +8,55 @@ export interface TranscriptionInput {
   mimeType: string;
 }
 
-export class TranscriptionService {
-  async transcribe(settings: VoiceFlashSettings, input: TranscriptionInput): Promise<string> {
-    this.validateSettings(settings);
+export interface TranscriptionResult {
+  text: string;
+  profile: ApiProfile;
+  attemptedProfiles: ApiProfile[];
+}
 
-    if (settings.apiProvider === "gemini") {
-      return this.transcribeWithGemini(settings, input);
+export class TranscriptionService {
+  async transcribe(settings: VoiceFlashSettings, input: TranscriptionInput): Promise<TranscriptionResult> {
+    const profiles = this.resolveProfiles(settings);
+    const attemptedProfiles: ApiProfile[] = [];
+    const errors: string[] = [];
+
+    for (const profile of profiles) {
+      attemptedProfiles.push(profile);
+      try {
+        const text =
+          profile.provider === "gemini"
+            ? await this.transcribeWithGemini(profile, settings, input)
+            : await this.transcribeWithOpenAiCompatible(profile, settings, input);
+        return {
+          text,
+          profile,
+          attemptedProfiles,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`${profile.name}：${message}`);
+      }
     }
 
-    return this.transcribeWithOpenAiCompatible(settings, input);
+    throw new Error(this.buildFailureMessage(errors));
   }
 
   private async transcribeWithOpenAiCompatible(
+    profile: ApiProfile,
     settings: VoiceFlashSettings,
     input: TranscriptionInput,
   ): Promise<string> {
-    const endpoint = this.resolveEndpoint(settings.apiBaseUrl);
+    this.validateProfile(profile);
+    const endpoint = this.resolveEndpoint(profile.baseUrl);
     const boundary = `----voice-flash-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 
-    const body = this.buildMultipartBody(boundary, settings, input);
+    const body = this.buildMultipartBody(boundary, profile, settings, input);
 
     const response = await requestUrl({
       url: endpoint,
       method: "POST",
       headers: {
-        Authorization: `Bearer ${settings.apiKey.trim()}`,
+        Authorization: `Bearer ${profile.apiKey.trim()}`,
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
       },
       body,
@@ -52,10 +76,12 @@ export class TranscriptionService {
   }
 
   private async transcribeWithGemini(
+    profile: ApiProfile,
     settings: VoiceFlashSettings,
     input: TranscriptionInput,
   ): Promise<string> {
-    const endpoint = this.resolveGeminiEndpoint(settings);
+    this.validateProfile(profile);
+    const endpoint = this.resolveGeminiEndpoint(profile);
     const payload = {
       contents: [
         {
@@ -95,22 +121,49 @@ export class TranscriptionService {
     return text;
   }
 
-  private validateSettings(settings: VoiceFlashSettings): void {
-    if (!settings.apiBaseUrl.trim()) {
-      throw new Error("请先在设置中填写 API Base URL。");
+  private resolveProfiles(settings: VoiceFlashSettings): ApiProfile[] {
+    const profiles = settings.apiProfiles.filter((profile) => profile.id.trim().length > 0);
+    if (profiles.length === 0) {
+      if (settings.apiBaseUrl.trim() || settings.apiKey.trim() || settings.model.trim()) {
+        return [
+          {
+            id: "legacy",
+            name: "默认 API",
+            provider: settings.apiProvider,
+            baseUrl: settings.apiBaseUrl.trim(),
+            apiKey: settings.apiKey.trim(),
+            model: settings.model.trim(),
+          },
+        ];
+      }
+      throw new Error("请先在设置中添加至少一个 API。");
     }
-    if (!settings.apiKey.trim()) {
-      throw new Error("请先在设置中填写 API Key。");
+
+    const activeId = settings.activeApiProfileId.trim();
+    const activeIndex = profiles.findIndex((profile) => profile.id === activeId);
+    if (activeIndex <= 0) {
+      return profiles;
     }
-    if (!settings.model.trim()) {
-      throw new Error("请先在设置中填写 Model。");
+
+    return [profiles[activeIndex], ...profiles.slice(0, activeIndex), ...profiles.slice(activeIndex + 1)];
+  }
+
+  private validateProfile(profile: ApiProfile): void {
+    if (!profile.baseUrl.trim()) {
+      throw new Error("缺少 API Base URL。");
+    }
+    if (!profile.apiKey.trim()) {
+      throw new Error("缺少 API Key。");
+    }
+    if (!profile.model.trim()) {
+      throw new Error("缺少 Model。");
     }
   }
 
-  private resolveGeminiEndpoint(settings: VoiceFlashSettings): string {
-    const base = settings.apiBaseUrl.trim().replace(/\/+$/g, "");
-    const model = settings.model.trim();
-    const key = encodeURIComponent(settings.apiKey.trim());
+  private resolveGeminiEndpoint(profile: ApiProfile): string {
+    const base = profile.baseUrl.trim().replace(/\/+$/g, "");
+    const model = profile.model.trim();
+    const key = encodeURIComponent(profile.apiKey.trim());
     return `${base}/models/${encodeURIComponent(model)}:generateContent?key=${key}`;
   }
 
@@ -124,6 +177,7 @@ export class TranscriptionService {
 
   private buildMultipartBody(
     boundary: string,
+    profile: ApiProfile,
     settings: VoiceFlashSettings,
     input: TranscriptionInput,
   ): ArrayBuffer {
@@ -140,7 +194,7 @@ export class TranscriptionService {
       );
     };
 
-    pushTextPart("model", settings.model.trim());
+    pushTextPart("model", profile.model.trim());
     if (settings.prompt.trim()) {
       pushTextPart("prompt", settings.prompt.trim());
     }
@@ -217,6 +271,16 @@ export class TranscriptionService {
     }
 
     return rawText;
+  }
+
+  private buildFailureMessage(errors: string[]): string {
+    if (errors.length === 0) {
+      return "转写失败，未能获得可用的 API 响应。";
+    }
+    if (errors.length === 1) {
+      return errors[0];
+    }
+    return `全部 API 尝试失败：${errors.join("；")}`;
   }
 
   private extractError(response: RequestUrlResponse): string {
